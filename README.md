@@ -2,13 +2,22 @@
 
 Projeto de estudo para executar duas APIs na AWS: Produtos e Pedidos.
 
-## Como vai funcionar
+## Como o projeto funciona
 
-A API de Produtos lista os produtos.
-- recebe “quero ver os produtos” e devolve uma lista.
+As duas APIs foram escritas em Python e executadas em uma instância
+EC2 na AWS. A infraestrutura foi criada com Terraform.
 
-A API de Pedidos recebe um pedido e envia uma mensagem para uma fila. Uma função processa essa mensagem e registra o resultado.
-- recebe “quero fazer este pedido” e envia a mensagem para a SQS.
+1. **Consultar produtos — `GET /produtos`:** a API retorna em JSON
+   uma lista de produtos de exemplo definida no código.
+2. **Enviar um pedido — `POST /pedidos`:** a API recebe o ID do
+   produto e a quantidade, envia uma mensagem à fila SQS e responde
+   com HTTP `202`, indicando que o pedido foi aceito para processamento.
+3. **Processar o pedido:** a Lambda lê a mensagem da fila SQS e
+   registra o processamento no CloudWatch Logs.
+
+Nesta atividade, os produtos eram exemplos e os pedidos não foram
+salvos em banco de dados.
+
 ## Serviços utilizados
 
 - EC2: computador na AWS onde as APIs vão funcionar.
