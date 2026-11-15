@@ -1,0 +1,125 @@
+#!/bin/bash
+# Para a instalação se algum comando falhar.
+set -euo pipefail
+
+# Instala Python e Nginx, que receberá os acessos na porta 80.
+dnf install -y python3 python3-pip nginx
+
+# Cria o usuário que executará as APIs.
+useradd --system --shell /sbin/nologin atividade
+
+# Cria a pasta da aplicação na EC2.
+mkdir -p /opt/atividade/Apps
+
+# Copia o código da API de Produtos enviado pelo Terraform.
+cat <<'ARQUIVO' | base64 --decode > /opt/atividade/Apps/produtos.py
+${produtos_b64}
+ARQUIVO
+
+# Copia o código da API de Pedidos.
+cat <<'ARQUIVO' | base64 --decode > /opt/atividade/Apps/pedidos.py
+${pedidos_b64}
+ARQUIVO
+
+# Copia a lista de bibliotecas necessárias.
+cat <<'ARQUIVO' | base64 --decode > /opt/atividade/Apps/requirements.txt
+${requirements_b64}
+ARQUIVO
+
+# Cria o ambiente Python e instala as bibliotecas.
+python3 -m venv /opt/atividade/venv
+/opt/atividade/venv/bin/pip install \
+  -r /opt/atividade/Apps/requirements.txt
+
+# Informa à API o endereço da fila e a região.
+cat > /opt/atividade/pedidos.env <<'CONFIG'
+SQS_QUEUE_URL=${queue_url}
+AWS_REGION=${aws_region}
+CONFIG
+
+# Configura a inicialização automática da API de Produtos.
+cat > /etc/systemd/system/produtos.service <<'SERVICO'
+[Unit]
+Description=API de Produtos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=atividade
+WorkingDirectory=/opt/atividade
+ExecStart=/opt/atividade/venv/bin/python -u /opt/atividade/Apps/produtos.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICO
+
+# Configura a inicialização automática da API de Pedidos.
+cat > /etc/systemd/system/pedidos.service <<'SERVICO'
+[Unit]
+Description=API de Pedidos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=atividade
+WorkingDirectory=/opt/atividade
+EnvironmentFile=/opt/atividade/pedidos.env
+ExecStart=/opt/atividade/venv/bin/python -u /opt/atividade/Apps/pedidos.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICO
+
+# Encaminha cada endereço para a API correspondente.
+cat > /etc/nginx/conf.d/atividade.conf <<'NGINX'
+server {
+    listen 80;
+    server_name _;
+
+    client_max_body_size 16k;
+
+    location = /produtos {
+        proxy_pass http://127.0.0.1:8001;
+    }
+
+    location = /pedidos {
+        proxy_pass http://127.0.0.1:8002;
+    }
+
+    location = /health/produtos {
+        proxy_pass http://127.0.0.1:8001/health;
+    }
+
+    location = /health/pedidos {
+        proxy_pass http://127.0.0.1:8002/health;
+    }
+
+    location / {
+        default_type application/json;
+        return 404 '{"erro":"Caminho nao encontrado"}';
+    }
+}
+NGINX
+
+# Ajusta a permissão do Nginx caso o SELinux esteja ativo.
+if command -v getenforce >/dev/null 2>&1; then
+    if [ "$(getenforce)" != "Disabled" ]; then
+        setsebool -P httpd_can_network_connect 1
+    fi
+fi
+
+# Define o proprietário dos arquivos da aplicação.
+chown -R atividade:atividade /opt/atividade
+
+# Inicia as APIs e configura sua inicialização com a máquina.
+systemctl daemon-reload
+systemctl enable --now produtos pedidos
+
+# Verifica e inicia o Nginx.
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
