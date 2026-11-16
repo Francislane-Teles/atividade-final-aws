@@ -27,13 +27,39 @@ salvos em banco de dados.
 - IAM: controla as permissões de acesso aos serviços.
 - VPC: rede onde ficará a EC2.
 
-## Terraform
+## Como executar e testar
 
-O Terraform usa os arquivos `.tf` para criar a infraestrutura na AWS.
+Com o Terraform instalado e as credenciais da AWS configuradas,
+abra o terminal na raiz do repositório e execute:
 
-- `terraform plan`: mostra as alterações previstas.
-- `terraform apply`: executa as alterações.
-- `terraform destroy`: remove os recursos do projeto.
+```bash
+terraform init
+terraform plan
+terraform apply
+```
+
+### Acessar a aplicação na EC2
+
+Depois do `terraform apply`, consulte o IP público da instância EC2.
+No navegador, abra `http://IP_PUBLICO_DA_EC2/produtos`, substituindo
+`IP_PUBLICO_DA_EC2` pelo IP da instância. A resposta é uma lista em JSON.
+
+### Testar o fluxo de pedidos
+
+Substitua `IP_PUBLICO_DA_EC2` pelo IP da instância e execute:
+
+```bash
+curl -i -X POST http://IP_PUBLICO_DA_EC2/pedidos \
+  -H 'Content-Type: application/json' \
+  -d '{"produto_id":1,"quantidade":2}'
+```
+
+A resposta esperada é HTTP `202` com um `message_id`. Para confirmar
+o processamento, abra o log da função Lambda no CloudWatch Logs
+e procure o registro `pedido_processado` com o mesmo `message_id`.
+
+Ao terminar os testes, execute `terraform destroy` para remover
+os recursos criados para a atividade.
 
 ## Resultados e evidências
 
@@ -46,6 +72,8 @@ A Lambda processou a mensagem, e o registro apareceu no CloudWatch Logs.
 - [Envio de um pedido](evidencias/api-pedidos-aws.png)
 - [Processamento do pedido pela Lambda](evidencias/cloudwatch-lambda.png)
 - [Remoção dos recursos](evidencias/terraform-destroy.png)
+- [Mensagem enviada e recebida no SQS](evidencias/sqs-monitoramento.png)
+- [Saída do terraform apply](evidencias/terraform-apply.png)
 
 Após os testes, os recursos da atividade foram removidos com
 `terraform destroy`. As APIs ficaram indisponíveis após a remoção.
